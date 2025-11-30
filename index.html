@@ -2,12 +2,15 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <!-- 使用 dvh (Dynamic Viewport Height) 解決 Safari 網址列伸縮問題 -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- 關鍵：使用 interactive-widget=resizes-content 讓鍵盤彈出時佈局自動調整 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
     
-    <!-- Web App 設定 -->
+    <!-- iOS Web App Settings -->
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"> <!-- 改為半透明讓背景色延伸 -->
+    <meta name="apple-mobile-web-app-title" content="Japan 2025">
+    
+    <!-- Android Web App Settings -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#FFFDF5">
     <link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoi5pel5pys5bGx6Zm95LmL5peFIDIwMjUiLCJzaG9ydF9uYW1lIjoiSmFwYW4gMjAyNSIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjRkZGREY1IiwidGhlbWVfY29sb3IiOiIjRkZGREY1In0=">
@@ -17,7 +20,6 @@
     <script>
         window.addEventListener('error', function(e) {
             if (e.message && e.message.includes('ResizeObserver')) return;
-            if (e.message && e.message.includes('import')) return; 
             console.error("Global Error:", e);
         }, true);
     </script>
@@ -26,6 +28,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <script>
@@ -45,46 +49,43 @@
         }
     </script>
     <style>
-        /* 關鍵修正：使用 dvh 確保佔滿實際可視高度 */
+        /* 強制全螢幕佈局，禁止 body 捲動 */
         html, body {
             height: 100%;
-            height: 100dvh; 
+            height: 100dvh; /* 使用動態視口高度，完美適應 Safari */
             margin: 0;
             padding: 0;
-            overflow: hidden; /* 禁止 body 捲動，交給內部容器 */
+            overflow: hidden; 
             background-color: #FFFDF5;
             color: #2B2B2B;
             -webkit-tap-highlight-color: transparent;
             overscroll-behavior: none;
         }
+        
+        /* iOS Safe Area 支援 */
+        .pt-safe-top { padding-top: env(safe-area-inset-top); }
+        .pb-safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .card-shadow { box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05); }
         [v-cloak] { display: none !important; }
-        
-        /* Safe Area padding */
-        .pt-safe-top { padding-top: env(safe-area-inset-top); }
-        .pb-safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-        
-        .scroll-smooth { scroll-behavior: smooth; }
         
         .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
         .status-online { background-color: #10B981; }
         .status-offline { background-color: #EF4444; }
         .status-connecting { background-color: #F59E0B; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .scroll-smooth { scroll-behavior: smooth; }
     </style>
 </head>
 <body>
 
-    <div id="error-box" style="display:none;position:fixed;top:0;left:0;width:100%;background:#fee2e2;color:#991b1b;padding:1rem;z-index:9999;border-bottom:1px solid #ef4444;font-size:14px;">
-        <strong>系統訊息：</strong> <span id="error-content"></span>
-        <br><span class="text-xs text-red-800">若長時間無法連線，請檢查 Firebase Console 規則。</span>
-    </div>
-
     <div id="app" v-cloak class="flex flex-col h-full w-full">
         
-        <!-- 1. HEADER (Flex Item: 自然堆疊，不會遮擋內容) -->
+        <!-- 1. 標題列 (Header) - 自然堆疊，不使用 fixed -->
+        <!-- flex-none 確保高度根據內容自動撐開，不會被壓縮 -->
+        <!-- pt-safe-top 確保不會被瀏海擋住 -->
         <header class="flex-none z-50 bg-kinari shadow-sm border-b border-stone-100 pt-safe-top">
             <div class="pt-2 pb-2 px-6">
                 <div class="flex justify-between items-center mb-1">
@@ -98,7 +99,7 @@
                 </div>
             </div>
 
-            <!-- Date Scroller (Conditional) -->
+            <!-- 日期選單 (只在行程頁顯示) -->
             <div v-if="activeTab === 'itinerary'" class="w-full pb-2">
                 <div class="flex overflow-x-auto no-scrollbar px-4 gap-3 py-2" ref="dateScroller">
                     <button v-for="(day, index) in tripDays" :key="index" :id="'date-btn-' + day.date" @click="jumpToDate(day.date)"
@@ -111,10 +112,12 @@
             </div>
         </header>
 
-        <!-- 2. MAIN CONTENT (Flex Item: 自動填滿剩餘空間，內部捲動) -->
+        <!-- 2. 主要內容區 (Main) - 自動填滿剩餘空間 -->
+        <!-- flex-1 讓它佔據 Header 和 Nav 之間的所有空間 -->
+        <!-- overflow-hidden 確保捲動發生在內部子層，而不是整頁 -->
         <main class="flex-1 relative overflow-hidden bg-stone-50/50 w-full">
             
-            <!-- Itinerary Tab -->
+            <!-- 行程頁 (左右滑動容器) -->
             <div v-if="activeTab === 'itinerary'" 
                  class="w-full h-full flex overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth" 
                  ref="daysContainer"
@@ -122,14 +125,18 @@
                 
                 <div v-for="day in tripDays" :key="day.date" :id="'view-' + day.date" 
                      class="min-w-full w-full h-full snap-center overflow-y-auto p-4 pb-24">
+                     <!-- pb-24 是為了避免內容被 FAB 擋住，不是因為導覽列 -->
                     
                     <div class="space-y-4 pt-2">
+                        <!-- Empty State -->
                         <div v-if="getEventsForDay(day.date).length === 0" class="text-center py-20 text-stone-400 text-sm flex flex-col items-center">
                             <i class="fa-solid fa-calendar-plus text-4xl mb-3 opacity-30"></i>
                             <p class="opacity-70">{{ day.date }}<br>尚無行程</p>
                         </div>
 
+                        <!-- Event Cards -->
                         <div v-for="(item, idx) in getEventsForDay(day.date)" :key="item.id" class="relative pl-4 group">
+                            <!-- Timeline Line -->
                             <div class="absolute left-0 top-2 bottom-0 w-0.5 bg-stone-200 group-last:bottom-auto group-last:h-full"></div>
                             <div class="absolute left-[-4px] top-2 w-2.5 h-2.5 rounded-full bg-stone-300 border-2 border-white ring-1 ring-stone-200"></div>
                             
@@ -153,129 +160,131 @@
                 </div>
             </div>
             
-            <!-- FAB -->
+            <!-- FAB (新增行程按鈕) -->
+            <!-- absolute position relative to Main, not Body -->
             <button v-if="activeTab === 'itinerary'" @click="openAddModal" class="absolute bottom-6 right-6 w-14 h-14 bg-stone-800 text-white rounded-full shadow-xl flex items-center justify-center z-30 hover:scale-105 transition-transform border-2 border-white/20">
                 <i class="fa-solid fa-plus text-xl"></i>
             </button>
 
-            <!-- Wallet Tab -->
-            <div v-if="activeTab === 'wallet'" class="h-full w-full overflow-y-auto p-4 pb-24 bg-white">
-                <div class="bg-stone-800 text-white p-5 rounded-3xl shadow-lg relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
-                    <div class="flex justify-between items-start mb-4 relative z-10">
-                        <div>
-                            <h3 class="text-sm font-bold tracking-widest text-stone-300">結算概況 (約 NT$)</h3>
-                            <div class="flex items-center gap-2 mt-1">
-                                <label class="text-[10px] text-stone-400">匯率</label>
-                                <input v-model="exchangeRate" type="number" step="0.001" class="w-16 bg-stone-700 text-white text-xs px-2 py-1 rounded border border-stone-600 focus:border-yamabuki outline-none">
+            <!-- 其他分頁 (通用捲動容器) -->
+            <!-- pb-20 確保底部內容不貼邊 -->
+            <div v-if="activeTab !== 'itinerary'" class="h-full w-full overflow-y-auto p-4 pb-20 bg-white">
+                
+                <!-- Wallet Content -->
+                <div v-if="activeTab === 'wallet'">
+                    <div class="bg-stone-800 text-white p-5 rounded-3xl shadow-lg relative overflow-hidden">
+                        <div class="absolute -right-6 -top-6 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+                        <div class="flex justify-between items-start mb-4 relative z-10">
+                            <div>
+                                <h3 class="text-sm font-bold tracking-widest text-stone-300">結算概況 (約 NT$)</h3>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <label class="text-[10px] text-stone-400">匯率</label>
+                                    <input v-model="exchangeRate" type="number" step="0.001" class="w-16 bg-stone-700 text-white text-xs px-2 py-1 rounded border border-stone-600 focus:border-yamabuki outline-none">
+                                </div>
                             </div>
+                            <button @click="showMemberModal = true" class="text-xs bg-stone-700 px-3 py-1 rounded-full hover:bg-stone-600 border border-stone-600 flex items-center gap-1 transition-colors">
+                                <i class="fa-solid fa-user-gear"></i> 成員 ({{ membersList.length }})
+                            </button>
                         </div>
-                        <button @click="showMemberModal = true" class="text-xs bg-stone-700 px-3 py-1 rounded-full hover:bg-stone-600 border border-stone-600 flex items-center gap-1 transition-colors">
-                            <i class="fa-solid fa-user-gear"></i> 成員 ({{ membersList.length }})
-                        </button>
-                    </div>
-                    <div class="space-y-2 relative z-10">
-                        <div v-for="member in settlementData" :key="member.name" class="flex justify-between items-center border-b border-stone-700 pb-2 last:border-0 last:pb-0">
-                            <div><div class="font-bold text-lg">{{ member.name }}</div><div class="text-[10px] text-stone-400">已付約 NT${{ member.paid.toLocaleString() }}</div></div>
-                            <div class="text-right"><div class="text-lg font-bold" :class="member.balance >= 0 ? 'text-green-400' : 'text-red-400'">{{ member.balance >= 0 ? '+' : '' }}{{ member.balance.toLocaleString() }}</div><div class="text-[10px] text-stone-400">{{ member.balance >= 0 ? '應收' : '應付' }}</div></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="mt-6 bg-white p-4 rounded-xl border border-stone-200 flex items-center gap-4 shadow-sm">
-                    <div class="flex-1"><label class="text-[10px] text-stone-400 block">JPY</label><input type="number" v-model="calcAmount" class="w-full font-bold text-xl outline-none" placeholder="0"></div>
-                    <i class="fa-solid fa-arrow-right text-stone-300"></i>
-                    <div class="flex-1 text-right"><label class="text-[10px] text-stone-400 block">TWD</label><div class="font-bold text-xl text-yamabuki">{{ convertedTWD }}</div></div>
-                </div>
-
-                <div class="mt-6 bg-white p-5 rounded-2xl border border-stone-200 shadow-sm transition-all duration-300" :class="{'ring-2 ring-stone-800': editingExpenseId}">
-                    <h4 class="text-sm font-bold mb-3 text-stone-600 flex justify-between items-center">
-                        <span><i class="fa-solid fa-receipt mr-1"></i> {{ editingExpenseId ? '編輯消費' : '新增消費' }}</span>
-                        <button v-if="editingExpenseId" @click="cancelEditExpense" class="text-xs text-red-400 underline">取消編輯</button>
-                    </h4>
-                    <div class="grid grid-cols-5 gap-3 mb-3">
-                        <div class="col-span-2"><select v-model="newExpense.currency" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100 focus:border-stone-300 font-bold"><option value="JPY">JPY ¥</option><option value="TWD">TWD $</option></select></div>
-                        <div class="col-span-3"><input v-model="newExpense.amount" type="number" placeholder="金額" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100 focus:border-stone-300"></div>
-                    </div>
-                    <div class="mb-3"><input v-model="newExpense.item" placeholder="品項 (如: 晚餐、車票)" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100 focus:border-stone-300"></div>
-                    <div class="grid grid-cols-2 gap-3 mb-3">
-                        <div><label class="text-[10px] text-stone-400 ml-1">誰先墊錢？</label><select v-model="newExpense.payer" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100"><option v-for="m in membersList" :value="m.name">{{ m.name }}</option></select></div>
-                        <div><label class="text-[10px] text-stone-400 ml-1">分類</label><select v-model="newExpense.category" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100"><option value="food">飲食</option><option value="transport">交通</option><option value="shopping">購物</option><option value="stay">住宿</option><option value="ticket">門票</option></select></div>
-                    </div>
-                    <div class="mb-4">
-                        <label class="text-[10px] text-stone-400 ml-1 mb-1 block">分帳方式</label>
-                        <div class="flex bg-stone-50 p-1 rounded-lg border border-stone-100">
-                            <button @click="newExpense.splitType = 'average'" :class="newExpense.splitType === 'average' ? 'bg-white shadow text-stone-800' : 'text-stone-400'" class="flex-1 py-2 rounded-md text-xs font-bold transition-all">平均分擔</button>
-                            <button @click="newExpense.splitType = 'individual'" :class="newExpense.splitType === 'individual' ? 'bg-white shadow text-stone-800' : 'text-stone-400'" class="flex-1 py-2 rounded-md text-xs font-bold transition-all">個人獨享</button>
-                        </div>
-                        <div v-if="newExpense.splitType === 'individual'" class="mt-2 animate-fade-in-down">
-                            <label class="text-[10px] text-stone-400 ml-1">是誰的消費？</label>
-                            <select v-model="newExpense.forWhom" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100"><option v-for="m in membersList" :value="m.name">{{ m.name }}</option></select>
-                        </div>
-                    </div>
-                    <button @click="saveExpense" class="w-full bg-stone-800 text-white py-3 rounded-xl font-bold text-sm shadow-md hover:bg-stone-700 transition-colors">{{ editingExpenseId ? '儲存變更' : '記帳' }}</button>
-                </div>
-
-                <div class="mt-6">
-                    <div class="flex justify-between items-center mb-2 px-1"><h3 class="font-bold text-stone-700">最近消費</h3><span class="text-sm font-bold text-stone-500">總計: 約 NT${{ totalExpense.toLocaleString() }}</span></div>
-                    <div class="space-y-3">
-                        <div v-if="expenses.length === 0" class="text-center py-8 text-stone-400 text-sm">還沒有消費紀錄</div>
-                        <div v-for="(exp, idx) in expenses" :key="exp.id" class="bg-white p-4 rounded-xl flex justify-between items-center card-shadow border border-stone-50 relative group" :class="{'ring-2 ring-stone-200': editingExpenseId === exp.id}">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center text-stone-500"><i :class="getCategoryIcon(exp.category)"></i></div>
-                                <div><p class="font-bold text-stone-700">{{ exp.item }}</p><p class="text-xs text-stone-400"><span class="bg-stone-100 px-1 rounded text-stone-500 mr-1">{{ exp.payer }}付</span><span v-if="exp.splitType === 'average'"> (平分)</span><span v-else> (幫{{ exp.forWhom }}買)</span></p></div>
-                            </div>
-                            <div class="text-right"><p class="font-bold text-stone-800">{{ exp.currency === 'TWD' ? 'NT$' : '¥' }}{{ exp.amount }}</p><p class="text-xs text-stone-400">{{ exp.date_str }}</p></div>
-                            <div class="absolute -right-2 -top-2 flex gap-1">
-                                <button @click="openEditExpense(exp)" class="w-8 h-8 bg-stone-100 text-stone-500 rounded-full flex items-center justify-center shadow-sm border border-stone-200 active:scale-95 transition-transform"><i class="fa-solid fa-pen text-xs"></i></button>
-                                <button @click="deleteExpense(exp.id)" class="w-8 h-8 bg-red-50 text-red-400 rounded-full flex items-center justify-center shadow-sm border border-red-100 active:scale-95 transition-transform"><i class="fa-solid fa-times text-xs"></i></button>
+                        <div class="space-y-2 relative z-10">
+                            <div v-for="member in settlementData" :key="member.name" class="flex justify-between items-center border-b border-stone-700 pb-2 last:border-0 last:pb-0">
+                                <div><div class="font-bold text-lg">{{ member.name }}</div><div class="text-[10px] text-stone-400">已付約 NT${{ member.paid.toLocaleString() }}</div></div>
+                                <div class="text-right"><div class="text-lg font-bold" :class="member.balance >= 0 ? 'text-green-400' : 'text-red-400'">{{ member.balance >= 0 ? '+' : '' }}{{ member.balance.toLocaleString() }}</div><div class="text-[10px] text-stone-400">{{ member.balance >= 0 ? '應收' : '應付' }}</div></div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <!-- AI Guide Tab -->
-            <div v-if="activeTab === 'ai-guide'" class="h-full w-full overflow-hidden flex flex-col relative pb-24 bg-white">
-                <div class="text-center mb-4 flex-shrink-0 mt-4"><div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-tr from-purple-100 to-blue-100 text-purple-600 mb-2 ring-4 ring-white shadow-sm"><i class="fa-solid fa-sparkles text-xl"></i></div><h2 class="text-lg font-bold text-stone-800">AI 隨身導遊</h2><p class="text-xs text-stone-500">目前在: <span class="font-bold text-stone-700">{{ currentDayInfo.location }}</span></p></div>
-                <div id="chat-container" class="flex-1 overflow-y-auto px-2 space-y-4 no-scrollbar">
-                    <div v-for="(msg, index) in chatMessages" :key="index" class="flex w-full message-anim" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
-                        <div v-if="msg.role === 'model'" class="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center mr-2 shrink-0 border border-stone-200"><i class="fa-solid fa-robot text-xs text-stone-500"></i></div>
-                        <div class="max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm" :class="msg.role === 'user' ? 'bg-stone-800 text-white rounded-tr-none' : 'bg-white border border-stone-100 text-stone-700 rounded-tl-none'">
-                            <div v-if="msg.role === 'model'" class="prose prose-sm" v-html="renderMarkdown(msg.text)"></div><div v-else>{{ msg.text }}</div>
+                    <!-- Expense Form -->
+                    <div class="mt-6 bg-white p-5 rounded-2xl border border-stone-200 shadow-sm transition-all duration-300" :class="{'ring-2 ring-stone-800': editingExpenseId}">
+                        <h4 class="text-sm font-bold mb-3 text-stone-600 flex justify-between items-center">
+                            <span><i class="fa-solid fa-receipt mr-1"></i> {{ editingExpenseId ? '編輯消費' : '新增消費' }}</span>
+                            <button v-if="editingExpenseId" @click="cancelEditExpense" class="text-xs text-red-400 underline">取消編輯</button>
+                        </h4>
+                        <div class="grid grid-cols-5 gap-3 mb-3">
+                            <div class="col-span-2"><select v-model="newExpense.currency" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100 focus:border-stone-300 font-bold"><option value="JPY">JPY ¥</option><option value="TWD">TWD $</option></select></div>
+                            <div class="col-span-3"><input v-model="newExpense.amount" type="number" placeholder="金額" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100 focus:border-stone-300"></div>
+                        </div>
+                        <div class="mb-3"><input v-model="newExpense.item" placeholder="品項 (如: 晚餐、車票)" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100 focus:border-stone-300"></div>
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <div><label class="text-[10px] text-stone-400 ml-1">誰先墊錢？</label><select v-model="newExpense.payer" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100"><option v-for="m in membersList" :value="m.name">{{ m.name }}</option></select></div>
+                            <div><label class="text-[10px] text-stone-400 ml-1">分類</label><select v-model="newExpense.category" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100"><option value="food">飲食</option><option value="transport">交通</option><option value="shopping">購物</option><option value="stay">住宿</option><option value="ticket">門票</option></select></div>
+                        </div>
+                        <div class="mb-4">
+                            <label class="text-[10px] text-stone-400 ml-1 mb-1 block">分帳方式</label>
+                            <div class="flex bg-stone-50 p-1 rounded-lg border border-stone-100">
+                                <button @click="newExpense.splitType = 'average'" :class="newExpense.splitType === 'average' ? 'bg-white shadow text-stone-800' : 'text-stone-400'" class="flex-1 py-2 rounded-md text-xs font-bold transition-all">平均分擔</button>
+                                <button @click="newExpense.splitType = 'individual'" :class="newExpense.splitType === 'individual' ? 'bg-white shadow text-stone-800' : 'text-stone-400'" class="flex-1 py-2 rounded-md text-xs font-bold transition-all">個人獨享</button>
+                            </div>
+                            <div v-if="newExpense.splitType === 'individual'" class="mt-2 animate-fade-in-down">
+                                <label class="text-[10px] text-stone-400 ml-1">是誰的消費？</label>
+                                <select v-model="newExpense.forWhom" class="w-full bg-stone-50 p-3 rounded-lg text-sm outline-none border border-stone-100"><option v-for="m in membersList" :value="m.name">{{ m.name }}</option></select>
+                            </div>
+                        </div>
+                        <button @click="saveExpense" class="w-full bg-stone-800 text-white py-3 rounded-xl font-bold text-sm shadow-md hover:bg-stone-700 transition-colors">{{ editingExpenseId ? '儲存變更' : '記帳' }}</button>
+                    </div>
+
+                    <!-- Expense List -->
+                    <div class="mt-6">
+                        <div class="flex justify-between items-center mb-2 px-1"><h3 class="font-bold text-stone-700">最近消費</h3><span class="text-sm font-bold text-stone-500">總計: 約 NT${{ totalExpense.toLocaleString() }}</span></div>
+                        <div class="space-y-3">
+                            <div v-if="expenses.length === 0" class="text-center py-8 text-stone-400 text-sm">還沒有消費紀錄</div>
+                            <div v-for="(exp, idx) in expenses" :key="exp.id" class="bg-white p-4 rounded-xl flex justify-between items-center card-shadow border border-stone-50 relative group" :class="{'ring-2 ring-stone-200': editingExpenseId === exp.id}">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center text-stone-500"><i :class="getCategoryIcon(exp.category)"></i></div>
+                                    <div><p class="font-bold text-stone-700">{{ exp.item }}</p><p class="text-xs text-stone-400"><span class="bg-stone-100 px-1 rounded text-stone-500 mr-1">{{ exp.payer }}付</span><span v-if="exp.splitType === 'average'"> (平分)</span><span v-else> (幫{{ exp.forWhom }}買)</span></p></div>
+                                </div>
+                                <div class="text-right"><p class="font-bold text-stone-800">{{ exp.currency === 'TWD' ? 'NT$' : '¥' }}{{ exp.amount }}</p><p class="text-xs text-stone-400">{{ exp.date_str }}</p></div>
+                                <div class="absolute -right-2 -top-2 flex gap-1">
+                                    <button @click="openEditExpense(exp)" class="w-8 h-8 bg-stone-100 text-stone-500 rounded-full flex items-center justify-center shadow-sm border border-stone-200 active:scale-95 transition-transform"><i class="fa-solid fa-pen text-xs"></i></button>
+                                    <button @click="deleteExpense(exp.id)" class="w-8 h-8 bg-red-50 text-red-400 rounded-full flex items-center justify-center shadow-sm border border-red-100 active:scale-95 transition-transform"><i class="fa-solid fa-times text-xs"></i></button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div v-if="isAiLoading" class="flex w-full justify-start"><div class="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center mr-2 shrink-0 border border-stone-200"><i class="fa-solid fa-robot text-xs text-stone-500"></i></div><div class="bg-white border border-stone-100 rounded-2xl rounded-tl-none px-4 py-3 shadow-sm flex items-center gap-1"><div class="w-1.5 h-1.5 bg-stone-400 rounded-full typing-dot"></div><div class="w-1.5 h-1.5 bg-stone-400 rounded-full typing-dot" style="animation-delay: 0.2s"></div><div class="w-1.5 h-1.5 bg-stone-400 rounded-full typing-dot" style="animation-delay: 0.4s"></div></div></div>
                 </div>
-                <div class="mt-4 px-2 flex gap-2 overflow-x-auto no-scrollbar pb-2 flex-shrink-0">
-                    <button @click="quickAsk('這附近有什麼好吃的？')" class="flex items-center whitespace-nowrap px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs text-stone-600 shadow-sm active:scale-95 transition-transform"><span class="mr-1">🍜</span> 推薦美食</button>
-                    <button @click="quickAsk('這裡有什麼必買伴手禮？')" class="flex items-center whitespace-nowrap px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs text-stone-600 shadow-sm active:scale-95 transition-transform"><span class="mr-1">🎁</span> 伴手禮</button>
-                    <button @click="quickAsk('幫我看看今天的行程順不順')" class="flex items-center whitespace-nowrap px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs text-stone-600 shadow-sm active:scale-95 transition-transform"><span class="mr-1">📝</span> 檢查行程</button>
-                </div>
-                <div class="mt-2 p-2 bg-white rounded-2xl border border-stone-200 flex items-center shadow-sm relative flex-shrink-0">
-                    <input v-model="userInput" @keyup.enter="sendAiMessage" type="text" placeholder="問問 AI 導遊..." class="flex-1 bg-transparent outline-none text-sm px-2 text-stone-700" :disabled="isAiLoading">
-                    <button @click="sendAiMessage" class="w-8 h-8 rounded-xl bg-stone-800 text-white flex items-center justify-center disabled:opacity-50 transition-colors" :disabled="!userInput || isAiLoading"><i class="fa-solid fa-paper-plane text-xs"></i></button>
-                </div>
-            </div>
 
-            <!-- Backup Tab -->
-            <div v-if="activeTab === 'backup'" class="h-full w-full overflow-y-auto p-4 pb-24">
-                <div class="bg-matcha/20 p-6 rounded-3xl mb-6 flex justify-between items-center">
-                    <div><h2 class="text-2xl font-bold text-stone-700 mb-1">備用方案</h2><p class="text-stone-600 text-sm opacity-80">記錄想去但時間不確定的地方</p></div>
-                    <button @click="showBackupModal = true" class="bg-stone-800 text-white w-10 h-10 rounded-full flex items-center justify-center shadow-lg"><i class="fa-solid fa-plus"></i></button>
+                <!-- Backup Tab -->
+                <div v-if="activeTab === 'backup'">
+                    <div class="bg-matcha/20 p-6 rounded-3xl mb-6 flex justify-between items-center">
+                        <div><h2 class="text-2xl font-bold text-stone-700 mb-1">備用方案</h2><p class="text-stone-600 text-sm opacity-80">記錄想去但時間不確定的地方</p></div>
+                        <button @click="showBackupModal = true" class="bg-stone-800 text-white w-10 h-10 rounded-full flex items-center justify-center shadow-lg"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+                    <div class="grid grid-cols-1 gap-4">
+                        <div v-if="backupSpotsList.length === 0" class="text-center py-10 text-stone-400"><i class="fa-solid fa-bookmark text-4xl mb-3 opacity-30"></i><p>還沒有備用景點</p></div>
+                        <div v-for="spot in backupSpotsList" :key="spot.id" class="bg-white p-4 rounded-2xl card-shadow border border-stone-50 flex flex-col gap-2 relative group">
+                            <div class="flex justify-between items-start"><h3 class="font-bold text-stone-700 text-lg">{{ spot.name }}</h3><button @click="deleteBackupSpot(spot.id)" class="text-stone-300 hover:text-red-400"><i class="fa-solid fa-trash"></i></button></div>
+                            <p class="text-sm text-stone-500">{{ spot.desc }}</p>
+                            <button @click="openGoogleMap(spot.name)" class="mt-2 text-xs font-bold text-stone-400 self-start flex items-center bg-stone-100 px-3 py-1.5 rounded-full hover:bg-stone-200 transition-colors"><i class="fa-solid fa-location-dot mr-1"></i> 導航</button>
+                        </div>
+                    </div>
                 </div>
-                <div class="grid grid-cols-1 gap-4">
-                    <div v-if="backupSpotsList.length === 0" class="text-center py-10 text-stone-400"><i class="fa-solid fa-bookmark text-4xl mb-3 opacity-30"></i><p>還沒有備用景點</p></div>
-                    <div v-for="spot in backupSpotsList" :key="spot.id" class="bg-white p-4 rounded-2xl card-shadow border border-stone-50 flex flex-col gap-2 relative group">
-                        <div class="flex justify-between items-start"><h3 class="font-bold text-stone-700 text-lg">{{ spot.name }}</h3><button @click="deleteBackupSpot(spot.id)" class="text-stone-300 hover:text-red-400"><i class="fa-solid fa-trash"></i></button></div>
-                        <p class="text-sm text-stone-500">{{ spot.desc }}</p>
-                        <button @click="openGoogleMap(spot.name)" class="mt-2 text-xs font-bold text-stone-400 self-start flex items-center bg-stone-100 px-3 py-1.5 rounded-full hover:bg-stone-200 transition-colors"><i class="fa-solid fa-location-dot mr-1"></i> 導航</button>
+
+                <!-- AI Guide Tab -->
+                <div v-if="activeTab === 'ai-guide'" class="flex flex-col h-full">
+                    <div class="text-center mb-4 flex-shrink-0 mt-4"><div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-tr from-purple-100 to-blue-100 text-purple-600 mb-2 ring-4 ring-white shadow-sm"><i class="fa-solid fa-sparkles text-xl"></i></div><h2 class="text-lg font-bold text-stone-800">AI 隨身導遊</h2><p class="text-xs text-stone-500">目前在: <span class="font-bold text-stone-700">{{ currentDayInfo.location }}</span></p></div>
+                    <div id="chat-container" class="flex-1 overflow-y-auto px-2 space-y-4 no-scrollbar">
+                        <div v-for="(msg, index) in chatMessages" :key="index" class="flex w-full message-anim" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+                            <div v-if="msg.role === 'model'" class="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center mr-2 shrink-0 border border-stone-200"><i class="fa-solid fa-robot text-xs text-stone-500"></i></div>
+                            <div class="max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm" :class="msg.role === 'user' ? 'bg-stone-800 text-white rounded-tr-none' : 'bg-white border border-stone-100 text-stone-700 rounded-tl-none'">
+                                <div v-if="msg.role === 'model'" class="prose prose-sm" v-html="renderMarkdown(msg.text)"></div><div v-else>{{ msg.text }}</div>
+                            </div>
+                        </div>
+                        <div v-if="isAiLoading" class="flex w-full justify-start"><div class="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center mr-2 shrink-0 border border-stone-200"><i class="fa-solid fa-robot text-xs text-stone-500"></i></div><div class="bg-white border border-stone-100 rounded-2xl rounded-tl-none px-4 py-3 shadow-sm flex items-center gap-1"><div class="w-1.5 h-1.5 bg-stone-400 rounded-full typing-dot"></div><div class="w-1.5 h-1.5 bg-stone-400 rounded-full typing-dot" style="animation-delay: 0.2s"></div><div class="w-1.5 h-1.5 bg-stone-400 rounded-full typing-dot" style="animation-delay: 0.4s"></div></div></div>
+                    </div>
+                    <div class="mt-4 px-2 flex gap-2 overflow-x-auto no-scrollbar pb-2 flex-shrink-0">
+                        <button @click="quickAsk('這附近有什麼好吃的？')" class="flex items-center whitespace-nowrap px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs text-stone-600 shadow-sm active:scale-95 transition-transform"><span class="mr-1">🍜</span> 推薦美食</button>
+                        <button @click="quickAsk('這裡有什麼必買伴手禮？')" class="flex items-center whitespace-nowrap px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs text-stone-600 shadow-sm active:scale-95 transition-transform"><span class="mr-1">🎁</span> 伴手禮</button>
+                        <button @click="quickAsk('幫我看看今天的行程順不順')" class="flex items-center whitespace-nowrap px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs text-stone-600 shadow-sm active:scale-95 transition-transform"><span class="mr-1">📝</span> 檢查行程</button>
+                    </div>
+                    <div class="mt-2 p-2 bg-white rounded-2xl border border-stone-200 flex items-center shadow-sm relative flex-shrink-0">
+                        <input v-model="userInput" @keyup.enter="sendAiMessage" type="text" placeholder="問問 AI 導遊..." class="flex-1 bg-transparent outline-none text-sm px-2 text-stone-700" :disabled="isAiLoading">
+                        <button @click="sendAiMessage" class="w-8 h-8 rounded-xl bg-stone-800 text-white flex items-center justify-center disabled:opacity-50 transition-colors" :disabled="!userInput || isAiLoading"><i class="fa-solid fa-paper-plane text-xs"></i></button>
                     </div>
                 </div>
             </div>
         </main>
 
-        <!-- 3. NAVBAR (Flex Item: 底部自然堆疊) -->
+        <!-- 3. 導覽列 (Nav) - 自然堆疊 -->
         <nav class="flex-none z-50 bg-white/90 backdrop-blur-md border-t border-stone-100 pb-safe-bottom">
             <div class="flex justify-between items-center h-16 px-6">
                 <button @click="changeTab('itinerary')" :class="activeTab === 'itinerary' ? 'text-stone-800' : 'text-stone-300'" class="flex flex-col items-center transition-colors w-12"><i class="fa-solid fa-calendar-day text-xl mb-1"></i><span class="text-[10px] font-medium">行程</span></button>
@@ -589,7 +598,7 @@
                 const editRate = () => { const r = prompt('輸入匯率', exchangeRate.value); if (r) exchangeRate.value = parseFloat(r); };
                 const openGoogleMap = (query) => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
                 const getCategoryIcon = (cat) => { const i = { food: 'fa-utensils', transport: 'fa-train-subway', shopping: 'fa-bag-shopping', stay: 'fa-bed', ticket: 'fa-ticket' }; return `fa-solid ${i[cat] || 'fa-circle'}`; };
-                const getWeatherIcon = (code) => { return 'fa-solid fa-sun text-yamabuki'; }; // Fallback
+                const getWeatherIcon = (code) => { return 'fa-solid fa-sun text-yamabuki'; };
                 const quickAsk = (question) => { userInput.value = question; sendAiMessage(); }
                 const sendAiMessage = async () => {
                     if (!userInput.value.trim()) return;
